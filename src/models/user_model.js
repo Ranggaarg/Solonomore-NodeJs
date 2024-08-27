@@ -5,8 +5,13 @@ const getDataUser = async (username) => {
     return dbPool.execute(SQLQuery);
 }
 
-const updateDataUser = async (username, body) => {
-    const SQLQuery = `UPDATE USERS SET age = '${body.age}', gender = '${body.gender}' WHERE USERNAME = '${username}'`;
+const updateGenderData = async (username, body) => {
+    const SQLQuery = `UPDATE USERS SET gender = '${body.gender}' WHERE USERNAME = '${username}'`;
+    return dbPool.execute(SQLQuery);
+}
+
+const updateAgeData = async (username, body) => {
+    const SQLQuery = `UPDATE USERS SET age = '${body.age}' WHERE USERNAME = '${username}'`;
     return dbPool.execute(SQLQuery);
 }
 
@@ -22,7 +27,7 @@ const updateUserPreference = async (username, body) => {
 
 const createUser = async (user) => {
     const {username, rank, role, age, gender, play_style, communication_style, game_mode} = user;
-    const{result} = await dbPool.execute(`INSERT INTO USERS (username, rank, role, age, gender, play_style, communication_style, game_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    const{result} = await dbPool.execute(`INSERT INTO USERS (username, rank, role, age, gender, play_style, communication_style, game_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [username.toLowerCase(), rank.toLowerCase(), role.toLowerCase(), age, gender.toLowerCase(), play_style.toLowerCase(), communication_style.toLowerCase(), game_mode.toLowerCase()])
     return result;
 }
 
@@ -39,9 +44,10 @@ const getAllUser = async () => {
 
 module.exports = {
     getDataUser,
-    updateDataUser,
     findByUsername,
     updateUserPreference,
     createUser,
-    getAllUser
+    getAllUser,
+    updateAgeData,
+    updateGenderData
 }

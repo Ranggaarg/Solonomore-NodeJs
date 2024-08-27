@@ -5,7 +5,9 @@ const router = express.Router();
 const upload = multer({storage: multer.memoryStorage()});
 router.get('/data/:username', UserController.getDataUser);
 
-router.patch('/updateData/:username', UserController.UpdateDataUser);
+router.patch('/gender/:username', UserController.updateGenderData);
+
+router.patch('/age/:username', UserController.updateAgeData);
 
 router.patch('/updatePreference/:username', UserController.UpdateUserPreference);
 

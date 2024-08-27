@@ -1,7 +1,6 @@
 const UserModel = require('../models/user_model');
-const kmeans = require('node-kmeans');
-const { plot } = require('nodeplotlib');
 const { parse } = require('csv-parse');
+const kMeans = require('../utils/k_means');
 const XLSX = require('xlsx');
 
 const getDataUser = async (req, res) => {
@@ -25,7 +24,7 @@ const getDataUser = async (req, res) => {
     }
 }
 
-const UpdateDataUser = async (req, res) => {
+const updateGenderData = async (req, res) => {
     const {body} = req;
     const {username} = req.params;
     const existingUser = await UserModel.findByUsername(username);
@@ -35,7 +34,33 @@ const UpdateDataUser = async (req, res) => {
         })
     }
     try {
-        await UserModel.updateDataUser(username, body);
+        await UserModel.updateGenderData(username, body);
+        res.status(200).json({
+            message : 'Update Data Success',
+            data: {
+                username,
+                ...body
+            }
+        })
+    } catch (error) {
+        res.status(500).json({
+            message : 'Server Error',
+            serverMessage : error.message,
+        })
+    }
+}
+
+const updateAgeData = async (req, res) => {
+    const {body} = req;
+    const {username} = req.params;
+    const existingUser = await UserModel.findByUsername(username);
+    if(!existingUser) {
+        return res.status(400).json({
+            message : "Data Not Found"
+        })
+    }
+    try {
+        await UserModel.updateAgeData(username, body);
         res.status(200).json({
             message : 'Update Data Success',
             data: {
@@ -120,14 +145,56 @@ const gameModeMap = {
     'brawl': 3
 };
 
+const rankReverseMap = {
+    0: 'warrior',
+    1: 'elite',
+    2: 'master',
+    3: 'grandmaster',
+    4: 'epic',
+    5: 'legend',
+    6: 'mythic',
+    7: 'glorious mythic'
+};
+
+const roleReverseMap = {
+    0: 'goldlane',
+    1: 'midlane',
+    2: 'explane',
+    3: 'jungler',
+    4: 'roamer'
+};
+
+const genderReverseMap = {
+    0: 'pria',
+    1: 'wanita'
+};
+
+const playStyleReverseMap = {
+    0: 'aggresive',
+    1: 'defensive',
+    2: 'balance'
+};
+
+const communicationStyleReverseMap = {
+    0: 'voice',
+    1: 'chat',
+    2: 'silent'
+};
+
+const gameModeReverseMap = {
+    0: 'rank',
+    1: 'classic',
+    2: 'custom',
+    3: 'brawl'
+};
 // Function to read Excel file and store data in database
 const uploadExcel = async (req, res) => {
     try {
-        if (!req.file) {
+        if (req.files.length === 0) {
             return res.status(400).send({ message: 'No file uploaded' });
         }
 
-        const file = req.file;
+        const file = req.files[0];
         const fileType = file.mimetype;
         let worksheet;
 
@@ -147,8 +214,10 @@ const uploadExcel = async (req, res) => {
             return res.status(400).send({ message: 'Unsupported file format' });
         }
 
+        console.log(worksheet);
         for (const row of worksheet) {
-            await createUser(row);
+            
+            await UserModel.createUser(row);
         }
 
         res.status(200).send({ message: 'Data successfully uploaded and saved!' });
@@ -158,30 +227,71 @@ const uploadExcel = async (req, res) => {
 };
 
 // Function to convert data to float
-const convertToFloat = (user) => [
-    parseFloat(rankMap[user.rank]),
-    parseFloat(roleMap[user.role]),
-    parseFloat(user.age),
-    parseFloat(genderMap[user.gender]),
-    parseFloat(playStyleMap[user.play_style]),
-    parseFloat(communicationStyleMap[user.communication_style]),
-    parseFloat(gameModeMap[user.game_mode])
-];
+const convertToFloatWithUsername = (user) => ({
+    username: user.username,
+    data: [
+        parseFloat(rankMap[user.rank]),
+        parseFloat(roleMap[user.role]),
+        parseFloat(user.age),
+        parseFloat(genderMap[user.gender]),
+        parseFloat(playStyleMap[user.play_style]),
+        parseFloat(communicationStyleMap[user.communication_style]),
+        parseFloat(gameModeMap[user.game_mode])
+    ]
+});
 
-// Function to find similar players using k-means clustering
+const filterPlayersByRole = (players, rolesNeeded) => {    
+    if (!Array.isArray(rolesNeeded)) {
+        throw new Error('rolesNeeded must be an array');
+    }
+    const filteredPlayers = players.filter(player => rolesNeeded.includes(player.role));
+    return filteredPlayers;
+};
+
+const filterUniqueRoles = (users) => {
+    const roleSet = new Set();
+    const uniqueUsers = [];
+
+    for (const user of users) {
+        if (!roleSet.has(user.role)) {
+            roleSet.add(user.role);
+            uniqueUsers.push(user);
+        }
+        if (uniqueUsers.length >= 5) break;
+    }
+
+    return uniqueUsers;
+};
+
+
 const findSimilarPlayers = async (req, res) => {
     try {
-        const users = await UserModel.getAllUser();
+        const users = await UserModel.getAllUser(req.body.role);
 
         if (!Array.isArray(users)) {
             return res.status(500).send({ message: 'Error retrieving users from database' });
         }
 
-        const data = users.map(user => convertToFloat(user));
+        const rolesNeeded = req.body.roles_needed;
 
-        console.log('Data:', data);
+        if (!Array.isArray(rolesNeeded)) {
+            return res.status(400).send({ message: 'roles_needed must be an array' });
+        }
 
-        const userToMatch = convertToFloat({
+        const filteredUsers = filterPlayersByRole(users, rolesNeeded);
+
+        if (filteredUsers.length === 0) {
+            return res.status(404).send({ message: 'No suitable players found' });
+        }
+
+        const userDataWithUsername = filteredUsers.map(user => convertToFloatWithUsername(user));
+
+        const data = userDataWithUsername.map(user => user.data);
+
+        // console.log('Data:', data);
+
+        const userToMatch = convertToFloatWithUsername({
+            username: 'currentUser', 
             rank: req.body.rank,
             role: req.body.role,
             age: req.body.age,
@@ -189,54 +299,75 @@ const findSimilarPlayers = async (req, res) => {
             play_style: req.body.play_style,
             communication_style: req.body.communication_style,
             game_mode: req.body.game_mode
-        });
+        }).data;
 
-        // Find optimal number of clusters using Elbow Method
-        const ssd = [];
-        for (let k = 1; k <= 10; k++) {
-            kmeans.clusterize(data, { k: k }, (err, result) => {
-                if (err) res.status(500).send({ message: err.message });
-                const sumSquaredDistances = result.reduce((acc, cluster) => {
-                    return acc + cluster.error;
-                }, 0);
-                ssd.push(sumSquaredDistances);
-            });
-        }
+        // console.log('User to Match:', userToMatch);
 
-        // Plot Elbow curve
-        plot([{ x: Array.from({ length: 10 }, (_, i) => i + 1), y: ssd, type: 'scatter' }], {
-            title: 'Elbow Method for Optimal k',
-            xaxis: { title: 'Number of clusters k' },
-            yaxis: { title: 'Sum of Squared Distances' }
-        });
+        const k = 7;
+        const { clusters } = kMeans(data, k);
 
-        // Assuming the optimal k found by Elbow Method is 7 for this example
-        kmeans.clusterize(data, { k: 7 }, (err, result) => {
-            if (err) res.status(500).send({ message: err.message });
-
-            let closestUsers = [];
-            let minDistance = Infinity;
-
-            result.forEach(cluster => {
-                cluster.cluster.forEach(point => {
-                    const distance = Math.sqrt(
-                        Math.pow(userToMatch[0] - point[0], 2) +
-                        Math.pow(userToMatch[1] - point[1], 2) +
-                        Math.pow(userToMatch[2] - point[2], 2) +
-                        Math.pow(userToMatch[3] - point[3], 2) +
-                        Math.pow(userToMatch[4] - point[4], 2) +
-                        Math.pow(userToMatch[5] - point[5], 2) +
-                        Math.pow(userToMatch[6] - point[6], 2)
-                    );
-
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestUsers = cluster.cluster;
-                    }
-                });
+        const clusterData = clusters.map((cluster, clusterIndex) => {
+            const usersInCluster = cluster.map(point => {
+                const index = data.findIndex(d => JSON.stringify(d) === JSON.stringify(point));
+                const user = userDataWithUsername[index];
+                return {
+                    username: user.username,
+                    rank: rankReverseMap[user.data[0]],
+                    role: roleReverseMap[user.data[1]],
+                    age: user.data[2],
+                    gender: genderReverseMap[user.data[3]],
+                    play_style: playStyleReverseMap[user.data[4]],
+                    communication_style: communicationStyleReverseMap[user.data[5]],
+                    game_mode: gameModeReverseMap[user.data[6]]
+                };
             });
 
-            res.status(200).send(closestUsers.slice(0, 5));
+            return {
+                cluster: clusterIndex + 1,
+                users: usersInCluster
+            };
+        });
+
+        let closestUsers = [];
+        let minDistance = Infinity;
+
+        clusters.forEach(cluster => {
+            cluster.forEach(point => {
+                const distance = Math.sqrt(
+                    Math.pow(userToMatch[0] - point[0], 2) +
+                    Math.pow(userToMatch[1] - point[1], 2) +
+                    Math.pow(userToMatch[2] - point[2], 2) +
+                    Math.pow(userToMatch[3] - point[3], 2) +
+                    Math.pow(userToMatch[4] - point[4], 2) +
+                    Math.pow(userToMatch[5] - point[5], 2) +
+                    Math.pow(userToMatch[6] - point[6], 2)
+                );
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestUsers = cluster;
+                }
+            });
+        });
+
+        const uniqueRoleUsers = filterUniqueRoles(closestUsers.map(point => {
+            const index = data.findIndex(d => JSON.stringify(d) === JSON.stringify(point));
+            const user = userDataWithUsername[index];
+            return {
+                username: user.username,
+                rank: rankReverseMap[user.data[0]],
+                role: roleReverseMap[user.data[1]],
+                age: user.data[2],
+                gender: genderReverseMap[user.data[3]],
+                play_style: playStyleReverseMap[user.data[4]],
+                communication_style: communicationStyleReverseMap[user.data[5]],
+                game_mode: gameModeReverseMap[user.data[6]]
+            };
+        }), rolesNeeded);
+
+        res.status(200).json({
+            data : uniqueRoleUsers,
+            dataClusters : clusterData,
         });
     } catch (error) {
         res.status(500).send({ message: error.message });
@@ -246,8 +377,9 @@ const findSimilarPlayers = async (req, res) => {
 
 module.exports = {
     getDataUser,
-    UpdateDataUser,
     UpdateUserPreference,
+    updateAgeData,
+    updateGenderData,
     uploadExcel,
     findSimilarPlayers,
 }

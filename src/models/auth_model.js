@@ -1,13 +1,13 @@
 const dbPool = require('../config/db');
 
 const userRegist = (username, email, password) => {
-    const SQLQuery = `INSERT INTO AUTH (username, password, email) VALUES ('${username}','${password}','${email}')`;
+    const SQLQuery = `INSERT INTO AUTH (username, password, email) VALUES ('${username.toLowerCase()}','${password}','${email.toLowerCase()}')`;
 
     return dbPool.execute(SQLQuery);
 }
 
 const userRegistTableUser = (username) => {
-    const SQLQuery = `INSERT INTO USERS (username) VALUES ('${username}')`;
+    const SQLQuery = `INSERT INTO USERS (username) VALUES ('${username.toLowerCase()}')`;
     return dbPool.execute(SQLQuery);
 }
 
